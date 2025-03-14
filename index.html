@@ -64,9 +64,21 @@
             const minutes = Math.floor(timeLeft / 60);
             const seconds = Math.floor(timeLeft % 60);
             timerElement.textContent = `Pozostały czas: ${minutes}:${seconds < 10 ? '0' : ''}${seconds}`;
-            timeLeft -= 1;
-            if (timeLeft < 0) alert("Koniec gry!");
+            if (timeLeft <= 0) {
+                alert("Koniec gry!");
+                timeLeft = 0; // Zatrzymuje timer
+            }
         }
+        // Uruchomienie timera w odstępach 1 sekundy
+        const timerInterval = setInterval(() => {
+            if (timeLeft > 0) {
+                timeLeft -= 1;
+                updateTimer();
+            } else {
+                clearInterval(timerInterval); // Zatrzymuje timer po zakończeniu
+            }
+        }, 1000);
+        updateTimer(); // Wywołanie na starcie
 
         // Sterowanie
         const keys = {};
@@ -133,9 +145,6 @@
                     bullets.splice(index, 1);
                 }
             });
-
-            // Aktualizacja timera
-            if (timeLeft >= 0) updateTimer();
 
             renderer.render(scene, camera);
         }
