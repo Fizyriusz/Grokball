@@ -7,10 +7,14 @@
         body { margin: 0; overflow: hidden; }
         canvas { display: block; }
         #timer { position: absolute; top: 10px; left: 10px; color: white; font-family: Arial; }
+        #score { position: absolute; top: 30px; left: 10px; color: white; font-family: Arial; }
+        #crosshair { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: white; font-size: 20px; }
     </style>
 </head>
 <body>
     <div id="timer">Pozostały czas: 3:00</div>
+    <div id="score">Punkty: 0</div>
+    <div id="crosshair">+</div>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r134/three.min.js"></script>
     <script>
         // Scena i kamera
@@ -23,7 +27,7 @@
         // Gracz (kamera jako postać)
         camera.position.set(0, 5, 10);
         let velocity = new THREE.Vector3();
-        const speed = 0.1; // Zwiększona prędkość dla lepszej responsywności
+        const speed = 0.15; // Zwiększona prędkość dla dynamiki
         const jumpSpeed = 0.3;
         let isJumping = false;
 
@@ -62,26 +66,34 @@
         // NPC
         const npcGeometry = new THREE.BoxGeometry(1, 2, 1);
         const npcMaterial = new THREE.MeshBasicMaterial({ color: 0xFF0000 });
-        const npc = new THREE.Mesh(npcGeometry, npcMaterial);
-        npc.position.set(5, 1, 5);
-        scene.add(npc);
-        let npcDirection = new THREE.Vector3(0.05, 0, 0.05);
+        const npcs = [];
+        function spawnNPC() {
+            const npc = new THREE.Mesh(npcGeometry, npcMaterial);
+            npc.position.set(Math.random() * 40 - 20, 1, Math.random() * 40 - 20);
+            npc.userData.direction = new THREE.Vector3((Math.random() - 0.5) * 0.1, 0, (Math.random() - 0.5) * 0.1);
+            npc.userData.shootCooldown = 0;
+            scene.add(npc);
+            npcs.push(npc);
+        }
+        for (let i = 0; i < 2; i++) spawnNPC(); // 2 NPC na start
 
-        // Pociski (gracz i NPC)
+        // Pociski
         const bullets = [];
         const bulletGeometry = new THREE.SphereGeometry(0.2, 8, 8);
         const bulletMaterial = new THREE.MeshBasicMaterial({ color: 0xFFFF00 });
-        const npcBulletMaterial = new THREE.MeshBasicMaterial({ color: 0xFF00FF }); // Fioletowe pociski NPC
+        const npcBulletMaterial = new THREE.MeshBasicMaterial({ color: 0xFF00FF });
 
-        // Timer
-        let timeLeft = 180; // 3 minuty w sekundach
+        // Timer i punkty
+        let timeLeft = 180;
+        let score = 0;
         const timerElement = document.getElementById('timer');
+        const scoreElement = document.getElementById('score');
         function updateTimer() {
             const minutes = Math.floor(timeLeft / 60);
             const seconds = Math.floor(timeLeft % 60);
             timerElement.textContent = `Pozostały czas: ${minutes}:${seconds < 10 ? '0' : ''}${seconds}`;
             if (timeLeft <= 0) {
-                alert("Koniec gry!");
+                alert(`Koniec gry! Twój wynik: ${score}`);
                 timeLeft = 0;
             }
         }
@@ -96,19 +108,18 @@
         updateTimer();
 
         // Strzelanie NPC
-        let npcShootCooldown = 0;
-        function npcShoot() {
-            if (npcShootCooldown <= 0 && scene.children.includes(npc)) {
+        function npcShoot(npc) {
+            if (npc.userData.shootCooldown <= 0) {
                 const bullet = new THREE.Mesh(bulletGeometry, npcBulletMaterial);
                 bullet.position.copy(npc.position);
-                bullet.position.y = 1.5; // Strzał z wysokości "głowy" NPC
+                bullet.position.y = 1.5;
                 const direction = camera.position.clone().sub(npc.position).normalize();
-                bullet.userData.velocity = direction.clone().multiplyScalar(0.3);
+                bullet.userData.velocity = direction.clone().multiplyScalar(0.4); // Przyspieszone pociski NPC
                 scene.add(bullet);
                 bullets.push(bullet);
-                npcShootCooldown = 60; // Strzela co 1 sekundę (60 klatek przy 60 FPS)
+                npc.userData.shootCooldown = 45; // Strzela co 0.75 sekundy
             }
-            npcShootCooldown--;
+            npc.userData.shootCooldown--;
         }
 
         // Sterowanie
@@ -141,10 +152,10 @@
         function animate() {
             requestAnimationFrame(animate);
 
-            // Reset wektora prędkości dla płynnego ruchu
+            // Reset wektora prędkości
             velocity.set(0, velocity.y, 0);
 
-            // Ruch gracza
+            // Ruch gracza (S - przód, W - tył)
             velocity.y -= 0.01; // Grawitacja
             const direction = new THREE.Vector3();
             camera.getWorldDirection(direction);
@@ -154,8 +165,8 @@
             const sideDirection = new THREE.Vector3();
             sideDirection.crossVectors(direction, new THREE.Vector3(0, 1, 0)).normalize();
 
-            if (keys['KeyW']) velocity.add(direction.clone().multiplyScalar(-speed));
-            if (keys['KeyS']) velocity.add(direction.clone().multiplyScalar(speed));
+            if (keys['KeyS']) velocity.add(direction.clone().multiplyScalar(-speed)); // S - przód
+            if (keys['KeyW']) velocity.add(direction.clone().multiplyScalar(speed));  // W - tył
             if (keys['KeyA']) velocity.add(sideDirection.clone().multiplyScalar(-speed));
             if (keys['KeyD']) velocity.add(sideDirection.clone().multiplyScalar(speed));
             if (keys['Space'] && !isJumping) {
@@ -173,30 +184,36 @@
                 isJumping = false;
             }
 
-            // Ruch NPC
-            if (scene.children.includes(npc)) {
-                npc.position.add(npcDirection);
-                if (npc.position.x > 20 || npc.position.x < -20) npcDirection.x *= -1;
-                if (npc.position.z > 20 || npc.position.z < -20) npcDirection.z *= -1;
-                npcShoot(); // NPC strzela
-            }
+            // Ruch i strzelanie NPC
+            npcs.forEach((npc, index) => {
+                npc.position.add(npc.userData.direction);
+                if (npc.position.x > 20 || npc.position.x < -20) npc.userData.direction.x *= -1;
+                if (npc.position.z > 20 || npc.position.z < -20) npc.userData.direction.z *= -1;
+                npcShoot(npc);
+            });
 
             // Pociski
             bullets.forEach((bullet, index) => {
                 bullet.position.add(bullet.userData.velocity);
                 // Trafienie NPC przez gracza
-                if (scene.children.includes(npc) && bullet.material.color.getHex() === 0xFFFF00 && bullet.position.distanceTo(npc.position) < 1) {
-                    scene.remove(npc);
-                    bullets.splice(index, 1);
-                    scene.remove(bullet);
-                    return;
+                if (bullet.material.color.getHex() === 0xFFFF00) {
+                    npcs.forEach((npc, npcIndex) => {
+                        if (bullet.position.distanceTo(npc.position) < 1) {
+                            scene.remove(npc);
+                            npcs.splice(npcIndex, 1);
+                            bullets.splice(index, 1);
+                            scene.remove(bullet);
+                            score += 1;
+                            scoreElement.textContent = `Punkty: ${score}`;
+                            spawnNPC(); // Nowy NPC po pokonaniu
+                        }
+                    });
                 }
                 // Trafienie gracza przez NPC
                 if (bullet.material.color.getHex() === 0xFF00FF && bullet.position.distanceTo(camera.position) < 1) {
                     alert("Trafiony przez NPC!");
                     bullets.splice(index, 1);
                     scene.remove(bullet);
-                    return;
                 }
                 if (bullet.position.length() > 50) {
                     scene.remove(bullet);
