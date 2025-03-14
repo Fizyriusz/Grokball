@@ -57,28 +57,24 @@
 
         const obstacleMaterial = new THREE.MeshBasicMaterial({ color: 0x808080 });
         const obstacles = [];
-        // Standardowe przeszkody
         for (let i = 0; i < 5; i++) {
             const obstacle = new THREE.Mesh(new THREE.BoxGeometry(2, 2, 2), obstacleMaterial);
             obstacle.position.set(Math.random() * 40 - 20, 1, Math.random() * 40 - 20);
             scene.add(obstacle);
             obstacles.push(obstacle);
         }
-        // Wyższe przeszkody
         for (let i = 0; i < 3; i++) {
             const obstacle = new THREE.Mesh(new THREE.BoxGeometry(2, 4, 2), obstacleMaterial);
             obstacle.position.set(Math.random() * 40 - 20, 2, Math.random() * 40 - 20);
             scene.add(obstacle);
             obstacles.push(obstacle);
         }
-        // Niższe przeszkody
         for (let i = 0; i < 3; i++) {
             const obstacle = new THREE.Mesh(new THREE.BoxGeometry(3, 1, 3), obstacleMaterial);
             obstacle.position.set(Math.random() * 40 - 20, 0.5, Math.random() * 40 - 20);
             scene.add(obstacle);
             obstacles.push(obstacle);
         }
-        // Kilkupiętrowa przeszkoda
         const tower = new THREE.Mesh(new THREE.BoxGeometry(4, 6, 4), obstacleMaterial);
         tower.position.set(10, 3, 10);
         scene.add(tower);
@@ -170,9 +166,11 @@
             const playerBox = new THREE.Box3().setFromCenterAndSize(pos, new THREE.Vector3(1, 2, 1));
             for (let obstacle of obstacles) {
                 const obstacleBox = new THREE.Box3().setFromObject(obstacle);
-                if (playerBox.intersectsBox(obstacleBox)) return true;
+                if (playerBox.intersectsBox(obstacleBox)) {
+                    return obstacle; // Zwraca przeszkodę, z którą jest kolizja
+                }
             }
-            return false;
+            return null;
         }
 
         // Kolizje pocisków
@@ -193,7 +191,7 @@
             velocity.set(0, velocity.y, 0);
 
             // Ruch gracza (S - przód, W - tył)
-            velocity.y -= 0.01;
+            velocity.y -= 0.01; // Grawitacja
             const direction = new THREE.Vector3();
             camera.getWorldDirection(direction);
             direction.y = 0;
@@ -214,9 +212,31 @@
             const newPos = camera.position.clone().add(velocity);
             newPos.x = Math.max(-24, Math.min(24, newPos.x));
             newPos.z = Math.max(-24, Math.min(24, newPos.z));
-            if (!checkCollision(newPos)) camera.position.copy(newPos);
-            if (camera.position.y <= 1) {
+
+            const collisionObstacle = checkCollision(newPos);
+            if (collisionObstacle) {
+                // Jeśli jest kolizja, ustaw gracza na górze przeszkody
+                const obstacleBox = new THREE.Box3().setFromObject(collisionObstacle);
+                if (velocity.y < 0 && camera.position.y > obstacleBox.max.y) {
+                    camera.position.y = obstacleBox.max.y + 0.1;
+                    velocity.y = 0;
+                    isJumping = false;
+                }
+            } else {
+                camera.position.copy(newPos);
+            }
+
+            // Sprawdzenie, czy gracz jest na ziemi lub przeszkodzie
+            const groundCheckPos = camera.position.clone();
+            groundCheckPos.y -= 0.1; // Sprawdzenie lekko poniżej pozycji gracza
+            const groundCollision = checkCollision(groundCheckPos);
+            if (!groundCollision && camera.position.y <= 1) {
                 camera.position.y = 1;
+                velocity.y = 0;
+                isJumping = false;
+            } else if (groundCollision && velocity.y <= 0) {
+                const obstacleBox = new THREE.Box3().setFromObject(groundCollision);
+                camera.position.y = obstacleBox.max.y + 0.1;
                 velocity.y = 0;
                 isJumping = false;
             }
@@ -232,13 +252,11 @@
             // Pociski
             bullets.forEach((bullet, index) => {
                 bullet.position.add(bullet.userData.velocity);
-                // Kolizja z przeszkodami
                 if (checkBulletCollision(bullet)) {
                     scene.remove(bullet);
                     bullets.splice(index, 1);
                     return;
                 }
-                // Trafienie NPC przez gracza
                 if (bullet.material.color.getHex() === 0xFFFF00) {
                     npcs.forEach((npc, npcIndex) => {
                         if (bullet.position.distanceTo(npc.position) < 1) {
@@ -252,7 +270,6 @@
                         }
                     });
                 }
-                // Trafienie gracza przez NPC
                 if (bullet.material.color.getHex() === 0xFF00FF && bullet.position.distanceTo(camera.position) < 1) {
                     hits += 1;
                     hitsElement.textContent = `Trafienia: ${hits}`;
