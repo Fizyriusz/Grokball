@@ -23,21 +23,21 @@
         // Gracz (kamera jako postać)
         camera.position.set(0, 5, 10);
         let velocity = new THREE.Vector3();
-        const speed = 0.05; // Zmniejszona prędkość dla lepszej kontroli
+        const speed = 0.1; // Zwiększona prędkość dla lepszej responsywności
         const jumpSpeed = 0.3;
         let isJumping = false;
 
         // Obracanie myszą
         let mouseSensitivity = 0.002;
-        let pitch = 0; // Obrót w pionie
-        let yaw = 0;   // Obrót w poziomie
+        let pitch = 0;
+        let yaw = 0;
         document.body.requestPointerLock = document.body.requestPointerLock || document.body.mozRequestPointerLock;
         document.addEventListener('click', () => document.body.requestPointerLock());
         document.addEventListener('mousemove', (e) => {
             if (document.pointerLockElement === document.body || document.mozPointerLockElement === document.body) {
                 yaw -= e.movementX * mouseSensitivity;
                 pitch -= e.movementY * mouseSensitivity;
-                pitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, pitch)); // Ograniczenie pitch (-90° do 90°)
+                pitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, pitch));
                 camera.rotation.set(pitch, yaw, 0);
             }
         });
@@ -67,10 +67,11 @@
         scene.add(npc);
         let npcDirection = new THREE.Vector3(0.05, 0, 0.05);
 
-        // Pociski
+        // Pociski (gracz i NPC)
         const bullets = [];
         const bulletGeometry = new THREE.SphereGeometry(0.2, 8, 8);
         const bulletMaterial = new THREE.MeshBasicMaterial({ color: 0xFFFF00 });
+        const npcBulletMaterial = new THREE.MeshBasicMaterial({ color: 0xFF00FF }); // Fioletowe pociski NPC
 
         // Timer
         let timeLeft = 180; // 3 minuty w sekundach
@@ -93,6 +94,22 @@
             }
         }, 1000);
         updateTimer();
+
+        // Strzelanie NPC
+        let npcShootCooldown = 0;
+        function npcShoot() {
+            if (npcShootCooldown <= 0 && scene.children.includes(npc)) {
+                const bullet = new THREE.Mesh(bulletGeometry, npcBulletMaterial);
+                bullet.position.copy(npc.position);
+                bullet.position.y = 1.5; // Strzał z wysokości "głowy" NPC
+                const direction = camera.position.clone().sub(npc.position).normalize();
+                bullet.userData.velocity = direction.clone().multiplyScalar(0.3);
+                scene.add(bullet);
+                bullets.push(bullet);
+                npcShootCooldown = 60; // Strzela co 1 sekundę (60 klatek przy 60 FPS)
+            }
+            npcShootCooldown--;
+        }
 
         // Sterowanie
         const keys = {};
@@ -124,6 +141,9 @@
         function animate() {
             requestAnimationFrame(animate);
 
+            // Reset wektora prędkości dla płynnego ruchu
+            velocity.set(0, velocity.y, 0);
+
             // Ruch gracza
             velocity.y -= 0.01; // Grawitacja
             const direction = new THREE.Vector3();
@@ -144,7 +164,6 @@
             }
 
             const newPos = camera.position.clone().add(velocity);
-            // Ograniczenie ruchu do granic mapy
             newPos.x = Math.max(-24, Math.min(24, newPos.x));
             newPos.z = Math.max(-24, Math.min(24, newPos.z));
             if (!checkCollision(newPos)) camera.position.copy(newPos);
@@ -155,17 +174,29 @@
             }
 
             // Ruch NPC
-            npc.position.add(npcDirection);
-            if (npc.position.x > 20 || npc.position.x < -20) npcDirection.x *= -1;
-            if (npc.position.z > 20 || npc.position.z < -20) npcDirection.z *= -1;
+            if (scene.children.includes(npc)) {
+                npc.position.add(npcDirection);
+                if (npc.position.x > 20 || npc.position.x < -20) npcDirection.x *= -1;
+                if (npc.position.z > 20 || npc.position.z < -20) npcDirection.z *= -1;
+                npcShoot(); // NPC strzela
+            }
 
             // Pociski
             bullets.forEach((bullet, index) => {
                 bullet.position.add(bullet.userData.velocity);
-                if (bullet.position.distanceTo(npc.position) < 1) {
+                // Trafienie NPC przez gracza
+                if (scene.children.includes(npc) && bullet.material.color.getHex() === 0xFFFF00 && bullet.position.distanceTo(npc.position) < 1) {
                     scene.remove(npc);
                     bullets.splice(index, 1);
                     scene.remove(bullet);
+                    return;
+                }
+                // Trafienie gracza przez NPC
+                if (bullet.material.color.getHex() === 0xFF00FF && bullet.position.distanceTo(camera.position) < 1) {
+                    alert("Trafiony przez NPC!");
+                    bullets.splice(index, 1);
+                    scene.remove(bullet);
+                    return;
                 }
                 if (bullet.position.length() > 50) {
                     scene.remove(bullet);
