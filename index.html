@@ -26,12 +26,17 @@
         renderer.setSize(window.innerWidth, window.innerHeight);
         document.body.appendChild(renderer.domElement);
 
-        // Gracz (kamera jako postać)
-        camera.position.set(0, 5, 10);
+        // Gracz (kamera + model dla widoku third-person)
+        const playerGeometry = new THREE.BoxGeometry(1, 2, 1);
+        const playerMaterial = new THREE.MeshBasicMaterial({ color: 0x00FF00 });
+        const player = new THREE.Mesh(playerGeometry, playerMaterial);
+        player.position.set(0, 1, 10);
+        scene.add(player);
         let velocity = new THREE.Vector3();
         const speed = 0.15;
         const jumpSpeed = 0.3;
         let isJumping = false;
+        let isFirstPerson = true; // Domyślnie FPS
 
         // Obracanie myszą
         let mouseSensitivity = 0.002;
@@ -42,9 +47,16 @@
         document.addEventListener('mousemove', (e) => {
             if (document.pointerLockElement === document.body || document.mozPointerLockElement === document.body) {
                 yaw -= e.movementX * mouseSensitivity;
-                pitch -= e.movementY * mouseSensitivity;
-                pitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, pitch));
+                pitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, pitch - e.movementY * mouseSensitivity));
+                camera.rotation.order = 'YXZ'; // Poprawka kolejności obrotu
                 camera.rotation.set(pitch, yaw, 0);
+            }
+        });
+
+        // Przełączanie widoku (F)
+        document.addEventListener('keydown', (e) => {
+            if (e.code === 'KeyF') {
+                isFirstPerson = !isFirstPerson;
             }
         });
 
@@ -104,6 +116,23 @@
         const bulletMaterial = new THREE.MeshBasicMaterial({ color: 0xFFFF00 });
         const npcBulletMaterial = new THREE.MeshBasicMaterial({ color: 0xFF00FF });
 
+        // Particle (efekty trafienia)
+        function createParticles(position, color) {
+            const particleGeometry = new THREE.SphereGeometry(0.1, 8, 8);
+            const particleMaterial = new THREE.MeshBasicMaterial({ color });
+            for (let i = 0; i < 10; i++) {
+                const particle = new THREE.Mesh(particleGeometry, particleMaterial);
+                particle.position.copy(position);
+                particle.userData.velocity = new THREE.Vector3(
+                    (Math.random() - 0.5) * 0.2,
+                    Math.random() * 0.3,
+                    (Math.random() - 0.5) * 0.2
+                );
+                scene.add(particle);
+                bullets.push(particle); // Używamy bullets do zarządzania cząsteczkami
+            }
+        }
+
         // Timer, punkty i trafienia
         let timeLeft = 180;
         let score = 0;
@@ -136,7 +165,7 @@
                 const bullet = new THREE.Mesh(bulletGeometry, npcBulletMaterial);
                 bullet.position.copy(npc.position);
                 bullet.position.y = 1.5;
-                const direction = camera.position.clone().sub(npc.position).normalize();
+                const direction = player.position.clone().sub(npc.position).normalize();
                 bullet.userData.velocity = direction.clone().multiplyScalar(0.4);
                 scene.add(bullet);
                 bullets.push(bullet);
@@ -162,11 +191,8 @@
         });
 
         // Kolizje gracza
-        function checkCollision(pos, heightOffset = 0) {
-            const playerBox = new THREE.Box3().setFromCenterAndSize(
-                new THREE.Vector3(pos.x, pos.y + heightOffset, pos.z),
-                new THREE.Vector3(1, 2, 1)
-            );
+        function checkCollision(pos) {
+            const playerBox = new THREE.Box3().setFromCenterAndSize(pos, new THREE.Vector3(1, 2, 1));
             for (let obstacle of obstacles) {
                 const obstacleBox = new THREE.Box3().setFromObject(obstacle);
                 if (playerBox.intersectsBox(obstacleBox)) {
@@ -194,7 +220,7 @@
             velocity.set(0, velocity.y, 0);
 
             // Ruch gracza (S - przód, W - tył)
-            velocity.y -= 0.01; // Grawitacja
+            velocity.y -= 0.01;
             const direction = new THREE.Vector3();
             camera.getWorldDirection(direction);
             direction.y = 0;
@@ -213,46 +239,51 @@
             }
 
             // Nowa pozycja gracza
-            let newPos = camera.position.clone().add(velocity);
+            let newPos = player.position.clone().add(velocity);
             newPos.x = Math.max(-24, Math.min(24, newPos.x));
             newPos.z = Math.max(-24, Math.min(24, newPos.z));
 
-            // Sprawdzenie kolizji w poziomie (X/Z)
-            let collisionObstacle = checkCollision(newPos);
+            const collisionObstacle = checkCollision(newPos);
             if (collisionObstacle) {
                 const obstacleBox = new THREE.Box3().setFromObject(collisionObstacle);
-                // Jeśli gracz jest nad przeszkodą i spada, ustaw go na jej górze
-                if (velocity.y <= 0 && camera.position.y > obstacleBox.max.y) {
-                    newPos.y = obstacleBox.max.y + 1; // +1, bo gracz ma wysokość 2
+                if (velocity.y <= 0 && player.position.y - 1 <= obstacleBox.max.y && player.position.y > obstacleBox.max.y) {
+                    newPos.y = obstacleBox.max.y + 1;
                     velocity.y = 0;
                     isJumping = false;
                 } else {
-                    // Zapobieganie przenikaniu w poziomie
-                    if (newPos.x < obstacleBox.min.x) newPos.x = obstacleBox.min.x - 0.5;
-                    if (newPos.x > obstacleBox.max.x) newPos.x = obstacleBox.max.x + 0.5;
-                    if (newPos.z < obstacleBox.min.z) newPos.z = obstacleBox.min.z - 0.5;
-                    if (newPos.z > obstacleBox.max.z) newPos.z = obstacleBox.max.z + 0.5;
+                    // Kolizja w poziomie - blokada ruchu
+                    newPos.x = player.position.x;
+                    newPos.z = player.position.z;
                 }
             }
 
-            // Sprawdzenie podłoża pod graczem
+            // Sprawdzenie podłoża
             const groundCheckPos = newPos.clone();
-            groundCheckPos.y -= 1.1; // Sprawdzenie poniżej stóp gracza
+            groundCheckPos.y -= 1.1;
             const groundCollision = checkCollision(groundCheckPos);
-            if (groundCollision) {
+            if (groundCollision && velocity.y <= 0) {
                 const obstacleBox = new THREE.Box3().setFromObject(groundCollision);
-                if (velocity.y <= 0) {
-                    newPos.y = obstacleBox.max.y + 1; // Ustaw na górze przeszkody
-                    velocity.y = 0;
-                    isJumping = false;
-                }
+                newPos.y = obstacleBox.max.y + 1;
+                velocity.y = 0;
+                isJumping = false;
             } else if (newPos.y <= 1) {
-                newPos.y = 1; // Ustaw na poziomie ziemi
+                newPos.y = 1;
                 velocity.y = 0;
                 isJumping = false;
             }
 
-            camera.position.copy(newPos);
+            player.position.copy(newPos);
+
+            // Ustawienie kamery
+            if (isFirstPerson) {
+                camera.position.copy(player.position);
+                camera.position.y += 1; // Oczy na wysokości głowy
+            } else {
+                const offset = new THREE.Vector3(0, 2, 3).applyQuaternion(camera.quaternion);
+                camera.position.copy(player.position).add(offset);
+                camera.lookAt(player.position);
+            }
+            player.rotation.y = yaw; // Obrót modelu gracza
 
             // Ruch i strzelanie NPC
             npcs.forEach((npc, index) => {
@@ -262,10 +293,12 @@
                 npcShoot(npc);
             });
 
-            // Pociski
+            // Pociski i particle
             bullets.forEach((bullet, index) => {
                 bullet.position.add(bullet.userData.velocity);
                 if (checkBulletCollision(bullet)) {
+                    if (bullet.material.color.getHex() === 0xFFFF00) createParticles(bullet.position, 0xFFFF00);
+                    else if (bullet.material.color.getHex() === 0xFF00FF) createParticles(bullet.position, 0xFF00FF);
                     scene.remove(bullet);
                     bullets.splice(index, 1);
                     return;
@@ -273,6 +306,7 @@
                 if (bullet.material.color.getHex() === 0xFFFF00) {
                     npcs.forEach((npc, npcIndex) => {
                         if (bullet.position.distanceTo(npc.position) < 1) {
+                            createParticles(npc.position, 0xFFFF00);
                             scene.remove(npc);
                             npcs.splice(npcIndex, 1);
                             bullets.splice(index, 1);
@@ -283,15 +317,21 @@
                         }
                     });
                 }
-                if (bullet.material.color.getHex() === 0xFF00FF && bullet.position.distanceTo(camera.position) < 1) {
+                if (bullet.material.color.getHex() === 0xFF00FF && bullet.position.distanceTo(player.position) < 1) {
+                    createParticles(player.position, 0xFF00FF);
                     hits += 1;
                     hitsElement.textContent = `Trafienia: ${hits}`;
                     bullets.splice(index, 1);
                     scene.remove(bullet);
                 }
-                if (bullet.position.length() > 50) {
+                if (bullet.position.length() > 50 || (bullet.geometry.type === 'SphereGeometry' && bullet.scale.x < 0.1)) {
                     scene.remove(bullet);
                     bullets.splice(index, 1);
+                }
+                // Particle zanikają
+                if (bullet.geometry.type === 'SphereGeometry' && bullet.scale.x > 0) {
+                    bullet.scale.multiplyScalar(0.95);
+                    bullet.userData.velocity.y -= 0.01; // Grawitacja dla particle
                 }
             });
 
