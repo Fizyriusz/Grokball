@@ -36,7 +36,7 @@
         const speed = 0.15;
         const jumpSpeed = 0.3;
         let isJumping = false;
-        let isFirstPerson = true; // Domyślnie FPS
+        let isFirstPerson = true;
 
         // Obracanie myszą
         let mouseSensitivity = 0.002;
@@ -48,14 +48,14 @@
             if (document.pointerLockElement === document.body || document.mozPointerLockElement === document.body) {
                 yaw -= e.movementX * mouseSensitivity;
                 pitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, pitch - e.movementY * mouseSensitivity));
-                camera.rotation.order = 'YXZ'; // Poprawka kolejności obrotu
+                camera.rotation.order = 'YXZ';
                 camera.rotation.set(pitch, yaw, 0);
             }
         });
 
         // Przełączanie widoku (F)
         document.addEventListener('keydown', (e) => {
-            if (e.code === 'KeyF') {
+            if (e.code === 'KeyF' && !e.repeat) { // Bez repeat, żeby uniknąć ciągłego przełączania
                 isFirstPerson = !isFirstPerson;
             }
         });
@@ -116,21 +116,18 @@
         const bulletMaterial = new THREE.MeshBasicMaterial({ color: 0xFFFF00 });
         const npcBulletMaterial = new THREE.MeshBasicMaterial({ color: 0xFF00FF });
 
-        // Particle (efekty trafienia)
-        function createParticles(position, color) {
-            const particleGeometry = new THREE.SphereGeometry(0.1, 8, 8);
-            const particleMaterial = new THREE.MeshBasicMaterial({ color });
-            for (let i = 0; i < 10; i++) {
-                const particle = new THREE.Mesh(particleGeometry, particleMaterial);
-                particle.position.copy(position);
-                particle.userData.velocity = new THREE.Vector3(
-                    (Math.random() - 0.5) * 0.2,
-                    Math.random() * 0.3,
-                    (Math.random() - 0.5) * 0.2
-                );
-                scene.add(particle);
-                bullets.push(particle); // Używamy bullets do zarządzania cząsteczkami
-            }
+        // Efekty wizualne (plamy farby)
+        const splashes = [];
+        function createSplash(position, color) {
+            const splashGeometry = new THREE.CircleGeometry(0.5, 16);
+            const splashMaterial = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 1 });
+            const splash = new THREE.Mesh(splashGeometry, splashMaterial);
+            splash.position.copy(position);
+            splash.position.y = 0.01; // Lekko nad ziemią
+            splash.rotation.x = -Math.PI / 2;
+            splash.userData.life = 120; // 2 sekundy przy 60 FPS
+            scene.add(splash);
+            splashes.push(splash);
         }
 
         // Timer, punkty i trafienia
@@ -251,7 +248,6 @@
                     velocity.y = 0;
                     isJumping = false;
                 } else {
-                    // Kolizja w poziomie - blokada ruchu
                     newPos.x = player.position.x;
                     newPos.z = player.position.z;
                 }
@@ -277,13 +273,13 @@
             // Ustawienie kamery
             if (isFirstPerson) {
                 camera.position.copy(player.position);
-                camera.position.y += 1; // Oczy na wysokości głowy
+                camera.position.y += 1;
             } else {
                 const offset = new THREE.Vector3(0, 2, 3).applyQuaternion(camera.quaternion);
-                camera.position.copy(player.position).add(offset);
+                camera.position.lerp(player.position.clone().add(offset), 0.1); // Płynne przejście
                 camera.lookAt(player.position);
             }
-            player.rotation.y = yaw; // Obrót modelu gracza
+            player.rotation.y = yaw;
 
             // Ruch i strzelanie NPC
             npcs.forEach((npc, index) => {
@@ -293,12 +289,11 @@
                 npcShoot(npc);
             });
 
-            // Pociski i particle
+            // Pociski i plamy
             bullets.forEach((bullet, index) => {
                 bullet.position.add(bullet.userData.velocity);
                 if (checkBulletCollision(bullet)) {
-                    if (bullet.material.color.getHex() === 0xFFFF00) createParticles(bullet.position, 0xFFFF00);
-                    else if (bullet.material.color.getHex() === 0xFF00FF) createParticles(bullet.position, 0xFF00FF);
+                    createSplash(bullet.position, bullet.material.color.getHex());
                     scene.remove(bullet);
                     bullets.splice(index, 1);
                     return;
@@ -306,7 +301,7 @@
                 if (bullet.material.color.getHex() === 0xFFFF00) {
                     npcs.forEach((npc, npcIndex) => {
                         if (bullet.position.distanceTo(npc.position) < 1) {
-                            createParticles(npc.position, 0xFFFF00);
+                            createSplash(npc.position, 0xFFFF00);
                             scene.remove(npc);
                             npcs.splice(npcIndex, 1);
                             bullets.splice(index, 1);
@@ -318,20 +313,25 @@
                     });
                 }
                 if (bullet.material.color.getHex() === 0xFF00FF && bullet.position.distanceTo(player.position) < 1) {
-                    createParticles(player.position, 0xFF00FF);
+                    createSplash(player.position, 0xFF00FF);
                     hits += 1;
                     hitsElement.textContent = `Trafienia: ${hits}`;
                     bullets.splice(index, 1);
                     scene.remove(bullet);
                 }
-                if (bullet.position.length() > 50 || (bullet.geometry.type === 'SphereGeometry' && bullet.scale.x < 0.1)) {
+                if (bullet.position.length() > 50) {
                     scene.remove(bullet);
                     bullets.splice(index, 1);
                 }
-                // Particle zanikają
-                if (bullet.geometry.type === 'SphereGeometry' && bullet.scale.x > 0) {
-                    bullet.scale.multiplyScalar(0.95);
-                    bullet.userData.velocity.y -= 0.01; // Grawitacja dla particle
+            });
+
+            // Aktualizacja plam
+            splashes.forEach((splash, index) => {
+                splash.userData.life--;
+                splash.material.opacity = splash.userData.life / 120;
+                if (splash.userData.life <= 0) {
+                    scene.remove(splash);
+                    splashes.splice(index, 1);
                 }
             });
 
