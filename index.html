@@ -8,12 +8,14 @@
         canvas { display: block; }
         #timer { position: absolute; top: 10px; left: 10px; color: white; font-family: Arial; }
         #score { position: absolute; top: 30px; left: 10px; color: white; font-family: Arial; }
+        #hits { position: absolute; top: 50px; left: 10px; color: white; font-family: Arial; }
         #crosshair { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: white; font-size: 20px; }
     </style>
 </head>
 <body>
     <div id="timer">Pozostały czas: 3:00</div>
     <div id="score">Punkty: 0</div>
+    <div id="hits">Trafienia: 0</div>
     <div id="crosshair">+</div>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r134/three.min.js"></script>
     <script>
@@ -27,7 +29,7 @@
         // Gracz (kamera jako postać)
         camera.position.set(0, 5, 10);
         let velocity = new THREE.Vector3();
-        const speed = 0.15; // Zwiększona prędkość dla dynamiki
+        const speed = 0.15;
         const jumpSpeed = 0.3;
         let isJumping = false;
 
@@ -53,15 +55,38 @@
         ground.rotation.x = -Math.PI / 2;
         scene.add(ground);
 
-        const obstacleGeometry = new THREE.BoxGeometry(2, 2, 2);
         const obstacleMaterial = new THREE.MeshBasicMaterial({ color: 0x808080 });
         const obstacles = [];
+        // Standardowe przeszkody
         for (let i = 0; i < 5; i++) {
-            const obstacle = new THREE.Mesh(obstacleGeometry, obstacleMaterial);
+            const obstacle = new THREE.Mesh(new THREE.BoxGeometry(2, 2, 2), obstacleMaterial);
             obstacle.position.set(Math.random() * 40 - 20, 1, Math.random() * 40 - 20);
             scene.add(obstacle);
             obstacles.push(obstacle);
         }
+        // Wyższe przeszkody
+        for (let i = 0; i < 3; i++) {
+            const obstacle = new THREE.Mesh(new THREE.BoxGeometry(2, 4, 2), obstacleMaterial);
+            obstacle.position.set(Math.random() * 40 - 20, 2, Math.random() * 40 - 20);
+            scene.add(obstacle);
+            obstacles.push(obstacle);
+        }
+        // Niższe przeszkody
+        for (let i = 0; i < 3; i++) {
+            const obstacle = new THREE.Mesh(new THREE.BoxGeometry(3, 1, 3), obstacleMaterial);
+            obstacle.position.set(Math.random() * 40 - 20, 0.5, Math.random() * 40 - 20);
+            scene.add(obstacle);
+            obstacles.push(obstacle);
+        }
+        // Kilkupiętrowa przeszkoda
+        const tower = new THREE.Mesh(new THREE.BoxGeometry(4, 6, 4), obstacleMaterial);
+        tower.position.set(10, 3, 10);
+        scene.add(tower);
+        obstacles.push(tower);
+        const platform = new THREE.Mesh(new THREE.BoxGeometry(6, 0.5, 6), obstacleMaterial);
+        platform.position.set(10, 5, 10);
+        scene.add(platform);
+        obstacles.push(platform);
 
         // NPC
         const npcGeometry = new THREE.BoxGeometry(1, 2, 1);
@@ -75,7 +100,7 @@
             scene.add(npc);
             npcs.push(npc);
         }
-        for (let i = 0; i < 2; i++) spawnNPC(); // 2 NPC na start
+        for (let i = 0; i < 2; i++) spawnNPC();
 
         // Pociski
         const bullets = [];
@@ -83,17 +108,19 @@
         const bulletMaterial = new THREE.MeshBasicMaterial({ color: 0xFFFF00 });
         const npcBulletMaterial = new THREE.MeshBasicMaterial({ color: 0xFF00FF });
 
-        // Timer i punkty
+        // Timer, punkty i trafienia
         let timeLeft = 180;
         let score = 0;
+        let hits = 0;
         const timerElement = document.getElementById('timer');
         const scoreElement = document.getElementById('score');
+        const hitsElement = document.getElementById('hits');
         function updateTimer() {
             const minutes = Math.floor(timeLeft / 60);
             const seconds = Math.floor(timeLeft % 60);
             timerElement.textContent = `Pozostały czas: ${minutes}:${seconds < 10 ? '0' : ''}${seconds}`;
             if (timeLeft <= 0) {
-                alert(`Koniec gry! Twój wynik: ${score}`);
+                alert(`Koniec gry! Twój wynik: ${score}, Trafienia: ${hits}`);
                 timeLeft = 0;
             }
         }
@@ -114,10 +141,10 @@
                 bullet.position.copy(npc.position);
                 bullet.position.y = 1.5;
                 const direction = camera.position.clone().sub(npc.position).normalize();
-                bullet.userData.velocity = direction.clone().multiplyScalar(0.4); // Przyspieszone pociski NPC
+                bullet.userData.velocity = direction.clone().multiplyScalar(0.4);
                 scene.add(bullet);
                 bullets.push(bullet);
-                npc.userData.shootCooldown = 45; // Strzela co 0.75 sekundy
+                npc.userData.shootCooldown = 45;
             }
             npc.userData.shootCooldown--;
         }
@@ -138,12 +165,22 @@
             }
         });
 
-        // Kolizje
+        // Kolizje gracza
         function checkCollision(pos) {
             const playerBox = new THREE.Box3().setFromCenterAndSize(pos, new THREE.Vector3(1, 2, 1));
             for (let obstacle of obstacles) {
                 const obstacleBox = new THREE.Box3().setFromObject(obstacle);
                 if (playerBox.intersectsBox(obstacleBox)) return true;
+            }
+            return false;
+        }
+
+        // Kolizje pocisków
+        function checkBulletCollision(bullet) {
+            const bulletBox = new THREE.Box3().setFromCenterAndSize(bullet.position, new THREE.Vector3(0.4, 0.4, 0.4));
+            for (let obstacle of obstacles) {
+                const obstacleBox = new THREE.Box3().setFromObject(obstacle);
+                if (bulletBox.intersectsBox(obstacleBox)) return true;
             }
             return false;
         }
@@ -156,7 +193,7 @@
             velocity.set(0, velocity.y, 0);
 
             // Ruch gracza (S - przód, W - tył)
-            velocity.y -= 0.01; // Grawitacja
+            velocity.y -= 0.01;
             const direction = new THREE.Vector3();
             camera.getWorldDirection(direction);
             direction.y = 0;
@@ -165,8 +202,8 @@
             const sideDirection = new THREE.Vector3();
             sideDirection.crossVectors(direction, new THREE.Vector3(0, 1, 0)).normalize();
 
-            if (keys['KeyS']) velocity.add(direction.clone().multiplyScalar(-speed)); // S - przód
-            if (keys['KeyW']) velocity.add(direction.clone().multiplyScalar(speed));  // W - tył
+            if (keys['KeyS']) velocity.add(direction.clone().multiplyScalar(-speed));
+            if (keys['KeyW']) velocity.add(direction.clone().multiplyScalar(speed));
             if (keys['KeyA']) velocity.add(sideDirection.clone().multiplyScalar(-speed));
             if (keys['KeyD']) velocity.add(sideDirection.clone().multiplyScalar(speed));
             if (keys['Space'] && !isJumping) {
@@ -195,6 +232,12 @@
             // Pociski
             bullets.forEach((bullet, index) => {
                 bullet.position.add(bullet.userData.velocity);
+                // Kolizja z przeszkodami
+                if (checkBulletCollision(bullet)) {
+                    scene.remove(bullet);
+                    bullets.splice(index, 1);
+                    return;
+                }
                 // Trafienie NPC przez gracza
                 if (bullet.material.color.getHex() === 0xFFFF00) {
                     npcs.forEach((npc, npcIndex) => {
@@ -205,13 +248,14 @@
                             scene.remove(bullet);
                             score += 1;
                             scoreElement.textContent = `Punkty: ${score}`;
-                            spawnNPC(); // Nowy NPC po pokonaniu
+                            spawnNPC();
                         }
                     });
                 }
                 // Trafienie gracza przez NPC
                 if (bullet.material.color.getHex() === 0xFF00FF && bullet.position.distanceTo(camera.position) < 1) {
-                    alert("Trafiony przez NPC!");
+                    hits += 1;
+                    hitsElement.textContent = `Trafienia: ${hits}`;
                     bullets.splice(index, 1);
                     scene.remove(bullet);
                 }
