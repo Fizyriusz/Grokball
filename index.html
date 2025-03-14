@@ -162,12 +162,15 @@
         });
 
         // Kolizje gracza
-        function checkCollision(pos) {
-            const playerBox = new THREE.Box3().setFromCenterAndSize(pos, new THREE.Vector3(1, 2, 1));
+        function checkCollision(pos, heightOffset = 0) {
+            const playerBox = new THREE.Box3().setFromCenterAndSize(
+                new THREE.Vector3(pos.x, pos.y + heightOffset, pos.z),
+                new THREE.Vector3(1, 2, 1)
+            );
             for (let obstacle of obstacles) {
                 const obstacleBox = new THREE.Box3().setFromObject(obstacle);
                 if (playerBox.intersectsBox(obstacleBox)) {
-                    return obstacle; // Zwraca przeszkodę, z którą jest kolizja
+                    return obstacle;
                 }
             }
             return null;
@@ -209,37 +212,47 @@
                 isJumping = true;
             }
 
-            const newPos = camera.position.clone().add(velocity);
+            // Nowa pozycja gracza
+            let newPos = camera.position.clone().add(velocity);
             newPos.x = Math.max(-24, Math.min(24, newPos.x));
             newPos.z = Math.max(-24, Math.min(24, newPos.z));
 
-            const collisionObstacle = checkCollision(newPos);
+            // Sprawdzenie kolizji w poziomie (X/Z)
+            let collisionObstacle = checkCollision(newPos);
             if (collisionObstacle) {
-                // Jeśli jest kolizja, ustaw gracza na górze przeszkody
                 const obstacleBox = new THREE.Box3().setFromObject(collisionObstacle);
-                if (velocity.y < 0 && camera.position.y > obstacleBox.max.y) {
-                    camera.position.y = obstacleBox.max.y + 0.1;
+                // Jeśli gracz jest nad przeszkodą i spada, ustaw go na jej górze
+                if (velocity.y <= 0 && camera.position.y > obstacleBox.max.y) {
+                    newPos.y = obstacleBox.max.y + 1; // +1, bo gracz ma wysokość 2
+                    velocity.y = 0;
+                    isJumping = false;
+                } else {
+                    // Zapobieganie przenikaniu w poziomie
+                    if (newPos.x < obstacleBox.min.x) newPos.x = obstacleBox.min.x - 0.5;
+                    if (newPos.x > obstacleBox.max.x) newPos.x = obstacleBox.max.x + 0.5;
+                    if (newPos.z < obstacleBox.min.z) newPos.z = obstacleBox.min.z - 0.5;
+                    if (newPos.z > obstacleBox.max.z) newPos.z = obstacleBox.max.z + 0.5;
+                }
+            }
+
+            // Sprawdzenie podłoża pod graczem
+            const groundCheckPos = newPos.clone();
+            groundCheckPos.y -= 1.1; // Sprawdzenie poniżej stóp gracza
+            const groundCollision = checkCollision(groundCheckPos);
+            if (groundCollision) {
+                const obstacleBox = new THREE.Box3().setFromObject(groundCollision);
+                if (velocity.y <= 0) {
+                    newPos.y = obstacleBox.max.y + 1; // Ustaw na górze przeszkody
                     velocity.y = 0;
                     isJumping = false;
                 }
-            } else {
-                camera.position.copy(newPos);
+            } else if (newPos.y <= 1) {
+                newPos.y = 1; // Ustaw na poziomie ziemi
+                velocity.y = 0;
+                isJumping = false;
             }
 
-            // Sprawdzenie, czy gracz jest na ziemi lub przeszkodzie
-            const groundCheckPos = camera.position.clone();
-            groundCheckPos.y -= 0.1; // Sprawdzenie lekko poniżej pozycji gracza
-            const groundCollision = checkCollision(groundCheckPos);
-            if (!groundCollision && camera.position.y <= 1) {
-                camera.position.y = 1;
-                velocity.y = 0;
-                isJumping = false;
-            } else if (groundCollision && velocity.y <= 0) {
-                const obstacleBox = new THREE.Box3().setFromObject(groundCollision);
-                camera.position.y = obstacleBox.max.y + 0.1;
-                velocity.y = 0;
-                isJumping = false;
-            }
+            camera.position.copy(newPos);
 
             // Ruch i strzelanie NPC
             npcs.forEach((npc, index) => {
