@@ -55,13 +55,13 @@
 
         // Przełączanie widoku (F)
         document.addEventListener('keydown', (e) => {
-            if (e.code === 'KeyF' && !e.repeat) { // Bez repeat, żeby uniknąć ciągłego przełączania
+            if (e.code === 'KeyF' && !e.repeat) {
                 isFirstPerson = !isFirstPerson;
             }
         });
 
-        // Mapa (podłoże + przeszkody)
-        const groundGeometry = new THREE.PlaneGeometry(50, 50);
+        // Mapa (większa + ściany)
+        const groundGeometry = new THREE.PlaneGeometry(100, 100); // Rozmiar 100x100
         const groundMaterial = new THREE.MeshBasicMaterial({ color: 0x228B22 });
         const ground = new THREE.Mesh(groundGeometry, groundMaterial);
         ground.rotation.x = -Math.PI / 2;
@@ -69,32 +69,61 @@
 
         const obstacleMaterial = new THREE.MeshBasicMaterial({ color: 0x808080 });
         const obstacles = [];
-        for (let i = 0; i < 5; i++) {
+        // Standardowe przeszkody
+        for (let i = 0; i < 10; i++) {
             const obstacle = new THREE.Mesh(new THREE.BoxGeometry(2, 2, 2), obstacleMaterial);
-            obstacle.position.set(Math.random() * 40 - 20, 1, Math.random() * 40 - 20);
+            obstacle.position.set(Math.random() * 80 - 40, 1, Math.random() * 80 - 40);
             scene.add(obstacle);
             obstacles.push(obstacle);
         }
-        for (let i = 0; i < 3; i++) {
+        for (let i = 0; i < 5; i++) {
             const obstacle = new THREE.Mesh(new THREE.BoxGeometry(2, 4, 2), obstacleMaterial);
-            obstacle.position.set(Math.random() * 40 - 20, 2, Math.random() * 40 - 20);
+            obstacle.position.set(Math.random() * 80 - 40, 2, Math.random() * 80 - 40);
             scene.add(obstacle);
             obstacles.push(obstacle);
         }
-        for (let i = 0; i < 3; i++) {
+        for (let i = 0; i < 5; i++) {
             const obstacle = new THREE.Mesh(new THREE.BoxGeometry(3, 1, 3), obstacleMaterial);
-            obstacle.position.set(Math.random() * 40 - 20, 0.5, Math.random() * 40 - 20);
+            obstacle.position.set(Math.random() * 80 - 40, 0.5, Math.random() * 80 - 40);
             scene.add(obstacle);
             obstacles.push(obstacle);
         }
         const tower = new THREE.Mesh(new THREE.BoxGeometry(4, 6, 4), obstacleMaterial);
-        tower.position.set(10, 3, 10);
+        tower.position.set(20, 3, 20);
         scene.add(tower);
         obstacles.push(tower);
         const platform = new THREE.Mesh(new THREE.BoxGeometry(6, 0.5, 6), obstacleMaterial);
-        platform.position.set(10, 5, 10);
+        platform.position.set(20, 5, 20);
         scene.add(platform);
         obstacles.push(platform);
+
+        // Ściany (granice mapy)
+        const wallMaterial = new THREE.MeshBasicMaterial({ color: 0x404040 });
+        const walls = [];
+        const wallHeight = 10;
+        const wallThickness = 1;
+        // Północna ściana
+        const northWall = new THREE.Mesh(new THREE.BoxGeometry(100, wallHeight, wallThickness), wallMaterial);
+        northWall.position.set(0, wallHeight / 2, 50);
+        scene.add(northWall);
+        walls.push(northWall);
+        // Południowa ściana
+        const southWall = new THREE.Mesh(new THREE.BoxGeometry(100, wallHeight, wallThickness), wallMaterial);
+        southWall.position.set(0, wallHeight / 2, -50);
+        scene.add(southWall);
+        walls.push(southWall);
+        // Wschodnia ściana
+        const eastWall = new THREE.Mesh(new THREE.BoxGeometry(wallThickness, wallHeight, 100), wallMaterial);
+        eastWall.position.set(50, wallHeight / 2, 0);
+        scene.add(eastWall);
+        walls.push(eastWall);
+        // Zachodnia ściana
+        const westWall = new THREE.Mesh(new THREE.BoxGeometry(wallThickness, wallHeight, 100), wallMaterial);
+        westWall.position.set(-50, wallHeight / 2, 0);
+        scene.add(westWall);
+        walls.push(westWall);
+
+        obstacles.push(...walls); // Ściany jako przeszkody
 
         // NPC
         const npcGeometry = new THREE.BoxGeometry(1, 2, 1);
@@ -102,13 +131,13 @@
         const npcs = [];
         function spawnNPC() {
             const npc = new THREE.Mesh(npcGeometry, npcMaterial);
-            npc.position.set(Math.random() * 40 - 20, 1, Math.random() * 40 - 20);
+            npc.position.set(Math.random() * 80 - 40, 1, Math.random() * 80 - 40);
             npc.userData.direction = new THREE.Vector3((Math.random() - 0.5) * 0.1, 0, (Math.random() - 0.5) * 0.1);
             npc.userData.shootCooldown = 0;
             scene.add(npc);
             npcs.push(npc);
         }
-        for (let i = 0; i < 2; i++) spawnNPC();
+        for (let i = 0; i < 3; i++) spawnNPC(); // 3 NPC na start
 
         // Pociski
         const bullets = [];
@@ -116,16 +145,16 @@
         const bulletMaterial = new THREE.MeshBasicMaterial({ color: 0xFFFF00 });
         const npcBulletMaterial = new THREE.MeshBasicMaterial({ color: 0xFF00FF });
 
-        // Efekty wizualne (plamy farby)
+        // Plamy farby
         const splashes = [];
         function createSplash(position, color) {
             const splashGeometry = new THREE.CircleGeometry(0.5, 16);
             const splashMaterial = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 1 });
             const splash = new THREE.Mesh(splashGeometry, splashMaterial);
             splash.position.copy(position);
-            splash.position.y = 0.01; // Lekko nad ziemią
+            splash.position.y = 0.01;
             splash.rotation.x = -Math.PI / 2;
-            splash.userData.life = 120; // 2 sekundy przy 60 FPS
+            splash.userData.life = 120;
             scene.add(splash);
             splashes.push(splash);
         }
@@ -237,8 +266,8 @@
 
             // Nowa pozycja gracza
             let newPos = player.position.clone().add(velocity);
-            newPos.x = Math.max(-24, Math.min(24, newPos.x));
-            newPos.z = Math.max(-24, Math.min(24, newPos.z));
+            newPos.x = Math.max(-49, Math.min(49, newPos.x)); // Nowe granice mapy
+            newPos.z = Math.max(-49, Math.min(49, newPos.z));
 
             const collisionObstacle = checkCollision(newPos);
             if (collisionObstacle) {
@@ -275,8 +304,9 @@
                 camera.position.copy(player.position);
                 camera.position.y += 1;
             } else {
-                const offset = new THREE.Vector3(0, 2, 3).applyQuaternion(camera.quaternion);
-                camera.position.lerp(player.position.clone().add(offset), 0.1); // Płynne przejście
+                const offset = new THREE.Vector3(0, 2, -3); // Kamera za graczem
+                const targetPos = player.position.clone().add(offset.applyQuaternion(player.quaternion.clone().setFromEuler(new THREE.Euler(0, yaw, 0))));
+                camera.position.lerp(targetPos, 0.1);
                 camera.lookAt(player.position);
             }
             player.rotation.y = yaw;
@@ -284,8 +314,8 @@
             // Ruch i strzelanie NPC
             npcs.forEach((npc, index) => {
                 npc.position.add(npc.userData.direction);
-                if (npc.position.x > 20 || npc.position.x < -20) npc.userData.direction.x *= -1;
-                if (npc.position.z > 20 || npc.position.z < -20) npc.userData.direction.z *= -1;
+                if (npc.position.x > 45 || npc.position.x < -45) npc.userData.direction.x *= -1;
+                if (npc.position.z > 45 || npc.position.z < -45) npc.userData.direction.z *= -1;
                 npcShoot(npc);
             });
 
@@ -319,7 +349,7 @@
                     bullets.splice(index, 1);
                     scene.remove(bullet);
                 }
-                if (bullet.position.length() > 50) {
+                if (bullet.position.length() > 100) {
                     scene.remove(bullet);
                     bullets.splice(index, 1);
                 }
