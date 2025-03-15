@@ -9,6 +9,7 @@
         #timer { position: absolute; top: 10px; left: 10px; color: white; font-family: Arial; }
         #score { position: absolute; top: 30px; left: 10px; color: white; font-family: Arial; }
         #hits { position: absolute; top: 50px; left: 10px; color: white; font-family: Arial; }
+        #powerUps { position: absolute; top: 70px; left: 10px; color: white; font-family: Arial; }
         #crosshair { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: white; font-size: 20px; }
     </style>
 </head>
@@ -16,6 +17,12 @@
     <div id="timer">Pozostały czas: 3:00</div>
     <div id="score">Punkty: 0</div>
     <div id="hits">Trafienia: 0</div>
+    <div id="powerUps">
+        Power-upy:<br>
+        <span style="color: #FFFF00">Żółty</span> - Szybsze strzały<br>
+        <span style="color: #0000FF">Niebieski</span> - Tarcza<br>
+        <span style="color: #FF00FF">Fioletowy</span> - Speed Boost
+    </div>
     <div id="crosshair">+</div>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r134/three.min.js"></script>
     <script>
@@ -36,6 +43,8 @@
         let speed = 0.15;
         const jumpSpeed = 0.3;
         let isJumping = false;
+        let isSliding = false;
+        let slideTimer = 0;
         let isFirstPerson = true;
         let bulletSpeed = 0.5;
         let shieldHits = 0;
@@ -53,10 +62,16 @@
             }
         });
 
-        // Przełączanie widoku (F)
+        // Przełączanie widoku (F) i ślizg (Ctrl)
         document.addEventListener('keydown', (e) => {
             if (e.code === 'KeyF' && !e.repeat) {
                 isFirstPerson = !isFirstPerson;
+            }
+            if (e.code === 'ControlLeft' && !isSliding && !isJumping) {
+                isSliding = true;
+                slideTimer = 30; // Ślizg trwa 0.5 sekundy (30 klatek przy 60 FPS)
+                speed *= 2; // Przyspieszenie podczas ślizgu
+                camera.position.y -= 0.5; // Obniżenie kamery
             }
         });
 
@@ -67,41 +82,47 @@
         ground.rotation.x = -Math.PI / 2;
         scene.add(ground);
 
-        const obstacleMaterial = new THREE.MeshBasicMaterial({ color: 0x808080 });
         const obstacles = [];
+        // Przeszkody z różnymi kolorami i kształtami
         for (let i = 0; i < 10; i++) {
-            const obstacle = new THREE.Mesh(new THREE.BoxGeometry(2, 2, 2), obstacleMaterial);
+            const obstacle = new THREE.Mesh(new THREE.BoxGeometry(2, 2, 2), new THREE.MeshBasicMaterial({ color: 0xFFA500 }));
             obstacle.position.set(Math.random() * 80 - 40, 1, Math.random() * 80 - 40);
             scene.add(obstacle);
             obstacles.push(obstacle);
         }
         for (let i = 0; i < 5; i++) {
-            const obstacle = new THREE.Mesh(new THREE.BoxGeometry(2, 4, 2), obstacleMaterial);
+            const obstacle = new THREE.Mesh(new THREE.BoxGeometry(2, 4, 2), new THREE.MeshBasicMaterial({ color: 0xFF4500 }));
             obstacle.position.set(Math.random() * 80 - 40, 2, Math.random() * 80 - 40);
             scene.add(obstacle);
             obstacles.push(obstacle);
         }
         for (let i = 0; i < 5; i++) {
-            const obstacle = new THREE.Mesh(new THREE.BoxGeometry(3, 1, 3), obstacleMaterial);
+            const obstacle = new THREE.Mesh(new THREE.BoxGeometry(3, 1, 3), new THREE.MeshBasicMaterial({ color: 0xFFD700 }));
             obstacle.position.set(Math.random() * 80 - 40, 0.5, Math.random() * 80 - 40);
             scene.add(obstacle);
             obstacles.push(obstacle);
         }
-        // Beczki
         for (let i = 0; i < 5; i++) {
-            const barrel = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, 2, 16), obstacleMaterial);
+            const barrel = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, 2, 16), new THREE.MeshBasicMaterial({ color: 0x8B4513 }));
             barrel.position.set(Math.random() * 80 - 40, 1, Math.random() * 80 - 40);
             scene.add(barrel);
             obstacles.push(barrel);
         }
-        const tower = new THREE.Mesh(new THREE.BoxGeometry(4, 6, 4), obstacleMaterial);
-        tower.position.set(20, 3, 20);
-        scene.add(tower);
-        obstacles.push(tower);
-        const platform = new THREE.Mesh(new THREE.BoxGeometry(6, 0.5, 6), obstacleMaterial);
-        platform.position.set(20, 5, 20);
-        scene.add(platform);
-        obstacles.push(platform);
+        for (let i = 0; i < 3; i++) {
+            const cone = new THREE.Mesh(new THREE.ConeGeometry(1.5, 3, 16), new THREE.MeshBasicMaterial({ color: 0xFF69B4 }));
+            cone.position.set(Math.random() * 80 - 40, 1.5, Math.random() * 80 - 40);
+            scene.add(cone);
+            obstacles.push(cone);
+        }
+        // Wyższe budynki
+        const building1 = new THREE.Mesh(new THREE.BoxGeometry(6, 10, 6), new THREE.MeshBasicMaterial({ color: 0x4682B4 }));
+        building1.position.set(-20, 5, -20);
+        scene.add(building1);
+        obstacles.push(building1);
+        const building2 = new THREE.Mesh(new THREE.BoxGeometry(5, 12, 5), new THREE.MeshBasicMaterial({ color: 0x2F4F4F }));
+        building2.position.set(30, 6, 10);
+        scene.add(building2);
+        obstacles.push(building2);
 
         // Ściany
         const wallMaterial = new THREE.MeshBasicMaterial({ color: 0x404040 });
@@ -157,9 +178,9 @@
             scene.add(powerUp);
             powerUps.push(powerUp);
         }
-        spawnPowerUp('fastShots', 0xFFFF00); // Szybsze strzały (żółty)
-        spawnPowerUp('shield', 0x0000FF);    // Tarcza (niebieski)
-        spawnPowerUp('speedBoost', 0xFF00FF); // Speed boost (fioletowy)
+        spawnPowerUp('fastShots', 0xFFFF00);
+        spawnPowerUp('shield', 0x0000FF);
+        spawnPowerUp('speedBoost', 0xFF00FF);
 
         // Plamy farby
         const splashes = [];
@@ -234,7 +255,7 @@
 
         // Kolizje gracza
         function checkCollision(pos) {
-            const playerBox = new THREE.Box3().setFromCenterAndSize(pos, new THREE.Vector3(1, 2, 1));
+            const playerBox = new THREE.Box3().setFromCenterAndSize(pos, new THREE.Vector3(1, isSliding ? 1 : 2, 1));
             for (let obstacle of obstacles) {
                 const obstacleBox = new THREE.Box3().setFromObject(obstacle);
                 if (playerBox.intersectsBox(obstacleBox)) {
@@ -277,9 +298,19 @@
             if (keys['KeyW']) velocity.add(direction.clone().multiplyScalar(speed));
             if (keys['KeyA']) velocity.add(sideDirection.clone().multiplyScalar(-speed));
             if (keys['KeyD']) velocity.add(sideDirection.clone().multiplyScalar(speed));
-            if (keys['Space'] && !isJumping) {
+            if (keys['Space'] && !isJumping && !isSliding) {
                 velocity.y = jumpSpeed;
                 isJumping = true;
+            }
+
+            // Ślizg
+            if (isSliding) {
+                slideTimer--;
+                if (slideTimer <= 0) {
+                    isSliding = false;
+                    speed /= 2; // Powrót do normalnej prędkości
+                    camera.position.y += 0.5; // Powrót kamery
+                }
             }
 
             // Nowa pozycja gracza
@@ -290,8 +321,8 @@
             const collisionObstacle = checkCollision(newPos);
             if (collisionObstacle) {
                 const obstacleBox = new THREE.Box3().setFromObject(collisionObstacle);
-                if (velocity.y <= 0 && player.position.y - 1 <= obstacleBox.max.y && player.position.y > obstacleBox.max.y) {
-                    newPos.y = obstacleBox.max.y + 1;
+                if (velocity.y <= 0 && player.position.y - (isSliding ? 0.5 : 1) <= obstacleBox.max.y && player.position.y > obstacleBox.max.y) {
+                    newPos.y = obstacleBox.max.y + (isSliding ? 0.5 : 1);
                     velocity.y = 0;
                     isJumping = false;
                 } else {
@@ -302,11 +333,11 @@
 
             // Sprawdzenie podłoża
             const groundCheckPos = newPos.clone();
-            groundCheckPos.y -= 1.1;
+            groundCheckPos.y -= (isSliding ? 0.6 : 1.1);
             const groundCollision = checkCollision(groundCheckPos);
             if (groundCollision && velocity.y <= 0) {
                 const obstacleBox = new THREE.Box3().setFromObject(groundCollision);
-                newPos.y = obstacleBox.max.y + 1;
+                newPos.y = obstacleBox.max.y + (isSliding ? 0.5 : 1);
                 velocity.y = 0;
                 isJumping = false;
             } else if (newPos.y <= 1) {
@@ -322,12 +353,12 @@
             camera.rotation.set(pitch, yaw, 0);
             if (isFirstPerson) {
                 camera.position.copy(player.position);
-                camera.position.y += 1;
+                camera.position.y += (isSliding ? 0.5 : 1);
             } else {
-                const offset = new THREE.Vector3(0, 2, -3); // Stały offset za graczem
+                const offset = new THREE.Vector3(0, 2, -3);
                 const targetPos = player.position.clone().add(offset.applyAxisAngle(new THREE.Vector3(0, 1, 0), yaw));
                 camera.position.lerp(targetPos, 0.1);
-                camera.lookAt(player.position);
+                camera.rotation.set(pitch, yaw, 0); // Pitch działa w third-person
             }
             player.rotation.y = yaw;
 
@@ -336,12 +367,12 @@
                 if (powerUp.position.distanceTo(player.position) < 1.5) {
                     if (powerUp.userData.type === 'fastShots') {
                         bulletSpeed = 1.0;
-                        fastShotsTimer = 600; // 10 sekund przy 60 FPS
+                        fastShotsTimer = 600;
                     } else if (powerUp.userData.type === 'shield') {
                         shieldHits = 5;
                     } else if (powerUp.userData.type === 'speedBoost') {
                         speed = 0.3;
-                        speedBoostTimer = 600; // 10 sekund
+                        speedBoostTimer = 600;
                     }
                     scene.remove(powerUp);
                     powerUps.splice(index, 1);
