@@ -33,10 +33,12 @@
         player.position.set(0, 1, 10);
         scene.add(player);
         let velocity = new THREE.Vector3();
-        const speed = 0.15;
+        let speed = 0.15;
         const jumpSpeed = 0.3;
         let isJumping = false;
         let isFirstPerson = true;
+        let bulletSpeed = 0.5;
+        let shieldHits = 0;
 
         // Obracanie myszą
         let mouseSensitivity = 0.002;
@@ -48,8 +50,6 @@
             if (document.pointerLockElement === document.body || document.mozPointerLockElement === document.body) {
                 yaw -= e.movementX * mouseSensitivity;
                 pitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, pitch - e.movementY * mouseSensitivity));
-                camera.rotation.order = 'YXZ';
-                camera.rotation.set(pitch, yaw, 0);
             }
         });
 
@@ -61,7 +61,7 @@
         });
 
         // Mapa (większa + ściany)
-        const groundGeometry = new THREE.PlaneGeometry(100, 100); // Rozmiar 100x100
+        const groundGeometry = new THREE.PlaneGeometry(100, 100);
         const groundMaterial = new THREE.MeshBasicMaterial({ color: 0x228B22 });
         const ground = new THREE.Mesh(groundGeometry, groundMaterial);
         ground.rotation.x = -Math.PI / 2;
@@ -69,7 +69,6 @@
 
         const obstacleMaterial = new THREE.MeshBasicMaterial({ color: 0x808080 });
         const obstacles = [];
-        // Standardowe przeszkody
         for (let i = 0; i < 10; i++) {
             const obstacle = new THREE.Mesh(new THREE.BoxGeometry(2, 2, 2), obstacleMaterial);
             obstacle.position.set(Math.random() * 80 - 40, 1, Math.random() * 80 - 40);
@@ -88,6 +87,13 @@
             scene.add(obstacle);
             obstacles.push(obstacle);
         }
+        // Beczki
+        for (let i = 0; i < 5; i++) {
+            const barrel = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, 2, 16), obstacleMaterial);
+            barrel.position.set(Math.random() * 80 - 40, 1, Math.random() * 80 - 40);
+            scene.add(barrel);
+            obstacles.push(barrel);
+        }
         const tower = new THREE.Mesh(new THREE.BoxGeometry(4, 6, 4), obstacleMaterial);
         tower.position.set(20, 3, 20);
         scene.add(tower);
@@ -97,33 +103,28 @@
         scene.add(platform);
         obstacles.push(platform);
 
-        // Ściany (granice mapy)
+        // Ściany
         const wallMaterial = new THREE.MeshBasicMaterial({ color: 0x404040 });
         const walls = [];
         const wallHeight = 10;
         const wallThickness = 1;
-        // Północna ściana
         const northWall = new THREE.Mesh(new THREE.BoxGeometry(100, wallHeight, wallThickness), wallMaterial);
         northWall.position.set(0, wallHeight / 2, 50);
         scene.add(northWall);
         walls.push(northWall);
-        // Południowa ściana
         const southWall = new THREE.Mesh(new THREE.BoxGeometry(100, wallHeight, wallThickness), wallMaterial);
         southWall.position.set(0, wallHeight / 2, -50);
         scene.add(southWall);
         walls.push(southWall);
-        // Wschodnia ściana
         const eastWall = new THREE.Mesh(new THREE.BoxGeometry(wallThickness, wallHeight, 100), wallMaterial);
         eastWall.position.set(50, wallHeight / 2, 0);
         scene.add(eastWall);
         walls.push(eastWall);
-        // Zachodnia ściana
         const westWall = new THREE.Mesh(new THREE.BoxGeometry(wallThickness, wallHeight, 100), wallMaterial);
         westWall.position.set(-50, wallHeight / 2, 0);
         scene.add(westWall);
         walls.push(westWall);
-
-        obstacles.push(...walls); // Ściany jako przeszkody
+        obstacles.push(...walls);
 
         // NPC
         const npcGeometry = new THREE.BoxGeometry(1, 2, 1);
@@ -137,13 +138,28 @@
             scene.add(npc);
             npcs.push(npc);
         }
-        for (let i = 0; i < 3; i++) spawnNPC(); // 3 NPC na start
+        for (let i = 0; i < 3; i++) spawnNPC();
 
         // Pociski
         const bullets = [];
         const bulletGeometry = new THREE.SphereGeometry(0.2, 8, 8);
         const bulletMaterial = new THREE.MeshBasicMaterial({ color: 0xFFFF00 });
         const npcBulletMaterial = new THREE.MeshBasicMaterial({ color: 0xFF00FF });
+
+        // Power-upy
+        const powerUps = [];
+        function spawnPowerUp(type, color) {
+            const powerUpGeometry = new THREE.SphereGeometry(0.5, 16, 16);
+            const powerUpMaterial = new THREE.MeshBasicMaterial({ color });
+            const powerUp = new THREE.Mesh(powerUpGeometry, powerUpMaterial);
+            powerUp.position.set(Math.random() * 80 - 40, 0.5, Math.random() * 80 - 40);
+            powerUp.userData.type = type;
+            scene.add(powerUp);
+            powerUps.push(powerUp);
+        }
+        spawnPowerUp('fastShots', 0xFFFF00); // Szybsze strzały (żółty)
+        spawnPowerUp('shield', 0x0000FF);    // Tarcza (niebieski)
+        spawnPowerUp('speedBoost', 0xFF00FF); // Speed boost (fioletowy)
 
         // Plamy farby
         const splashes = [];
@@ -210,7 +226,7 @@
                 bullet.position.copy(camera.position);
                 const direction = new THREE.Vector3();
                 camera.getWorldDirection(direction);
-                bullet.userData.velocity = direction.clone().multiplyScalar(0.5);
+                bullet.userData.velocity = direction.clone().multiplyScalar(bulletSpeed);
                 scene.add(bullet);
                 bullets.push(bullet);
             }
@@ -239,6 +255,8 @@
         }
 
         // Logika gry
+        let fastShotsTimer = 0;
+        let speedBoostTimer = 0;
         function animate() {
             requestAnimationFrame(animate);
 
@@ -266,7 +284,7 @@
 
             // Nowa pozycja gracza
             let newPos = player.position.clone().add(velocity);
-            newPos.x = Math.max(-49, Math.min(49, newPos.x)); // Nowe granice mapy
+            newPos.x = Math.max(-49, Math.min(49, newPos.x));
             newPos.z = Math.max(-49, Math.min(49, newPos.z));
 
             const collisionObstacle = checkCollision(newPos);
@@ -300,16 +318,46 @@
             player.position.copy(newPos);
 
             // Ustawienie kamery
+            camera.rotation.order = 'YXZ';
+            camera.rotation.set(pitch, yaw, 0);
             if (isFirstPerson) {
                 camera.position.copy(player.position);
                 camera.position.y += 1;
             } else {
-                const offset = new THREE.Vector3(0, 2, -3); // Kamera za graczem
-                const targetPos = player.position.clone().add(offset.applyQuaternion(player.quaternion.clone().setFromEuler(new THREE.Euler(0, yaw, 0))));
+                const offset = new THREE.Vector3(0, 2, -3); // Stały offset za graczem
+                const targetPos = player.position.clone().add(offset.applyAxisAngle(new THREE.Vector3(0, 1, 0), yaw));
                 camera.position.lerp(targetPos, 0.1);
                 camera.lookAt(player.position);
             }
             player.rotation.y = yaw;
+
+            // Power-upy
+            powerUps.forEach((powerUp, index) => {
+                if (powerUp.position.distanceTo(player.position) < 1.5) {
+                    if (powerUp.userData.type === 'fastShots') {
+                        bulletSpeed = 1.0;
+                        fastShotsTimer = 600; // 10 sekund przy 60 FPS
+                    } else if (powerUp.userData.type === 'shield') {
+                        shieldHits = 5;
+                    } else if (powerUp.userData.type === 'speedBoost') {
+                        speed = 0.3;
+                        speedBoostTimer = 600; // 10 sekund
+                    }
+                    scene.remove(powerUp);
+                    powerUps.splice(index, 1);
+                    setTimeout(() => spawnPowerUp(powerUp.userData.type, powerUp.material.color.getHex()), 10000);
+                }
+            });
+
+            // Zarządzanie power-upami
+            if (fastShotsTimer > 0) {
+                fastShotsTimer--;
+                if (fastShotsTimer <= 0) bulletSpeed = 0.5;
+            }
+            if (speedBoostTimer > 0) {
+                speedBoostTimer--;
+                if (speedBoostTimer <= 0) speed = 0.15;
+            }
 
             // Ruch i strzelanie NPC
             npcs.forEach((npc, index) => {
@@ -343,9 +391,13 @@
                     });
                 }
                 if (bullet.material.color.getHex() === 0xFF00FF && bullet.position.distanceTo(player.position) < 1) {
-                    createSplash(player.position, 0xFF00FF);
-                    hits += 1;
-                    hitsElement.textContent = `Trafienia: ${hits}`;
+                    if (shieldHits > 0) {
+                        shieldHits--;
+                    } else {
+                        createSplash(player.position, 0xFF00FF);
+                        hits += 1;
+                        hitsElement.textContent = `Trafienia: ${hits}`;
+                    }
                     bullets.splice(index, 1);
                     scene.remove(bullet);
                 }
